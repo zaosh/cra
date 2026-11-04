@@ -1,0 +1,158 @@
+---
+title: "Predicting Weight-Lifting Exercise Quality from Wearable Sensors"
+author: "Zaosh"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    keep_md: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.width = 7, fig.height = 4)
+library(caret); library(randomForest); library(ggplot2)
+set.seed(2026)
+```
+
+## Summary
+
+Six participants performed dumbbell biceps curls in five ways (`classe`): exactly
+to specification (**A**) and with four common mistakes (**B** throwing elbows forward,
+**C** lifting halfway, **D** lowering halfway, **E** throwing hips forward). Sensors on
+the belt, forearm, arm and dumbbell recorded motion. I build a classifier of `classe`
+from these sensor readings, using a random forest tuned with 5-fold cross-validation and
+checked against a held-out validation set. Data: Velloso, Bulling, Gellersen, Ugulino and
+Fuks, *Qualitative Activity Recognition of Weight Lifting Exercises* (HAR, PUC-Rio).
+
+## Data and cleaning
+
+```{r load}
+train_raw <- read.csv("data/pml-training.csv", na.strings = c("NA", "", "#DIV/0!"))
+test_raw  <- read.csv("data/pml-testing.csv",  na.strings = c("NA", "", "#DIV/0!"))
+dim(train_raw)
+```
+
+Many columns are summary statistics (kurtosis, skewness, max, min, amplitude, avg, var,
+stddev) populated only on the rows where `new_window == "yes"`; in the 20 test cases they
+are entirely `NA`. A model cannot use them at prediction time, so I drop every column that is
+more than 90% missing in training. I also drop row index, user name, timestamps and window
+identifiers: they identify *when/who*, not *how*, and would let a model "cheat" by
+position in the recording session rather than learn movement, which would not generalise
+to new data.
+
+```{r clean}
+na_frac <- colMeans(is.na(train_raw))
+keep <- names(na_frac)[na_frac < 0.9]
+drop_id <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2",
+             "cvtd_timestamp","new_window","num_window")
+keep <- setdiff(keep, drop_id)
+train <- train_raw[, keep]
+train$classe <- factor(train$classe)
+test  <- test_raw[, intersect(setdiff(keep, "classe"), names(test_raw))]
+ncol(train) - 1   # predictors retained
+all(setdiff(names(train), "classe") %in% names(test))
+```
+
+Remaining near-zero-variance predictors: `r length(nearZeroVar(train[, -ncol(train)]))`.
+
+```{r classdist, fig.height=3, fig.cap="Figure 1: Class balance in the training data."}
+ggplot(train, aes(classe, fill = classe)) + geom_bar(show.legend = FALSE) +
+  labs(x = "classe", y = "count") + theme_minimal()
+```
+
+Classes are reasonably balanced (A is the most frequent), so plain accuracy is a sensible metric.
+
+## Modelling and cross-validation
+
+I hold out 25% of the training data as a **validation set** that is never touched during
+tuning. On the remaining 75% I use **5-fold cross-validation** to compare models and tune
+hyperparameters. Random forests need no scaling, handle correlated and non-linear
+predictors, and are known to perform very well on this dataset. I compare against
+gradient boosting (GBM) and a single CART tree as a baseline.
+
+```{r split}
+idx <- createDataPartition(train$classe, p = 0.75, list = FALSE)
+trn <- train[idx, ]; val <- train[-idx, ]
+ctrl <- trainControl(method = "cv", number = 5)
+```
+
+```{r fit, cache=TRUE}
+fit_rf   <- train(classe ~ ., data = trn, method = "rf", trControl = ctrl,
+                  tuneGrid = data.frame(mtry = c(2, 7, 14, 27)), ntree = 200)
+fit_gbm  <- train(classe ~ ., data = trn, method = "gbm", trControl = ctrl, verbose = FALSE,
+                  tuneGrid = expand.grid(n.trees = 150, interaction.depth = 3,
+                                         shrinkage = 0.1, n.minobsinnode = 10))
+fit_tree <- train(classe ~ ., data = trn, method = "rpart", trControl = ctrl)
+cv_tab <- data.frame(
+  model = c("Random forest", "GBM", "CART tree"),
+  cv_accuracy = c(max(fit_rf$results$Accuracy), max(fit_gbm$results$Accuracy),
+                  max(fit_tree$results$Accuracy)))
+cv_tab$cv_error <- 1 - cv_tab$cv_accuracy
+cv_tab
+```
+
+```{r tune, fig.height=3.2, fig.cap="Figure 2: Cross-validated accuracy of the random forest versus mtry."}
+plot(fit_rf, main = "")
+```
+
+The random forest is clearly best (the single tree is far weaker), so I select it. Best `mtry`: `r fit_rf$bestTune$mtry`.
+
+## Expected out-of-sample error
+
+Cross-validation gives an estimate from folds of the training portion; the validation set
+gives an independent check, since it played no role in model selection.
+
+```{r val}
+cm <- confusionMatrix(predict(fit_rf, val), val$classe)
+cm$table
+cm$overall[c("Accuracy", "AccuracyLower", "AccuracyUpper")]
+```
+
+Validation accuracy is **`r sprintf("%.2f%%", 100*cm$overall["Accuracy"])`**, so the
+estimated out-of-sample error is about **`r sprintf("%.2f%%", 100*(1-cm$overall["Accuracy"]))`**
+(CV estimate: `r sprintf("%.2f%%", 100*cv_tab$cv_error[1])`). 
+
+**Caveat.** The random split mixes rows from the same participants and repetitions, so both
+estimates are likely optimistic relative to a *new person*. A leave-one-participant-out
+check (below) quantifies this.
+
+```{r lopo, cache=TRUE}
+users <- train_raw$user_name[idx_all <- seq_len(nrow(train))]
+lopo <- sapply(levels(users <- factor(train_raw$user_name)), function(u) {
+  tr <- train[users != u, ]; te <- train[users == u, ]
+  m <- randomForest(classe ~ ., data = tr, ntree = 100, mtry = fit_rf$bestTune$mtry)
+  mean(predict(m, te) == te$classe)
+})
+round(lopo, 3); mean(lopo)
+```
+
+Accuracy on an unseen participant is lower (mean `r sprintf("%.1f%%", 100*mean(lopo))`),
+so the realistic error for brand-new users is higher than the random-split figure. The 20
+quiz cases are drawn from the same six participants, so the random-split estimate is the
+relevant one for them.
+
+```{r imp, fig.height=4, fig.cap="Figure 3: Top 15 most important predictors."}
+imp <- varImp(fit_rf)$importance
+imp$var <- rownames(imp)
+imp <- head(imp[order(-imp$Overall), ], 15)
+ggplot(imp, aes(reorder(var, Overall), Overall)) + geom_col() + coord_flip() +
+  labs(x = NULL, y = "Importance") + theme_minimal()
+```
+
+## Final model and test predictions
+
+For the final model I refit the chosen random forest on **all** labelled data (training +
+validation) with the tuned `mtry`, then predict the 20 test cases.
+
+```{r final}
+final <- randomForest(classe ~ ., data = train, ntree = 500, mtry = fit_rf$bestTune$mtry)
+pred <- predict(final, test[, setdiff(names(train), "classe")])
+data.frame(problem_id = test_raw$problem_id, prediction = pred)
+writeLines(as.character(pred), "predictions.txt")
+```
+
+## Choices in brief
+
+* Dropped sparse summary columns and identifiers to avoid leakage and unusable features.
+* Random forest chosen by 5-fold CV over GBM and CART; validation set kept untouched for an honest error estimate.
+* Final model refit on all labelled data to use every example.
