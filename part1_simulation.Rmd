@@ -1,0 +1,99 @@
+---
+title: "Part 1: The Distribution of Averages of 40 Exponentials"
+author: "Zaosh"
+output:
+  html_document:
+    css: print.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 6, fig.height = 3, fig.align = "center")
+library(ggplot2)
+```
+
+## Overview
+
+I simulate the exponential distribution (rate $\lambda = 0.2$) and study the mean of 40
+draws, repeated 1000 times. By the Central Limit Theorem (CLT) these averages should be
+approximately normal, centred at $1/\lambda = 5$ with standard deviation
+$(1/\lambda)/\sqrt{40} \approx 0.79$. I compare the simulated mean, variance and shape with theory.
+Code is in the appendix.
+
+## Simulations
+
+`rexp(40, 0.2)` gives 40 exponentials; I take their mean and repeat this 1000 times
+(seed fixed for reproducibility). For contrast I also draw 1000 individual exponentials.
+
+```{r sim, echo=TRUE}
+set.seed(123)
+lambda <- 0.2; n <- 40; nsim <- 1000
+means  <- replicate(nsim, mean(rexp(n, lambda)))
+single <- rexp(nsim, lambda)
+```
+
+## Sample mean versus theoretical mean
+
+```{r mean}
+th_mean <- 1 / lambda
+sm <- mean(means)
+```
+
+The theoretical mean is $1/\lambda =$ `r th_mean`; the mean of the 1000 averages is
+**`r round(sm, 3)`**, a difference of `r round(abs(sm - th_mean), 3)`. The sample mean of averages is an
+unbiased estimate of the population mean, so the two agree closely (Figure 1, red = sample mean, blue = theory, almost overlapping).
+
+## Sample variance versus theoretical variance
+
+```{r var}
+th_var <- (1 / lambda)^2 / n
+sv <- var(means)
+```
+
+The variance of a mean of $n$ draws is $\sigma^2/n = (1/\lambda)^2/40 =$ **`r round(th_var, 3)`**
+(sd `r round(sqrt(th_var), 3)`). The simulated variance is **`r round(sv, 3)`** (sd `r round(sd(means), 3)`).
+They agree to within simulation noise. By contrast, a single exponential has variance 25, so
+averaging 40 values cuts the variance by a factor of 40.
+
+## Distribution
+
+```{r hist, fig.cap="Figure 1: 1000 averages of 40 exponentials, with the sample mean (red), theoretical mean (blue) and the normal density predicted by the CLT (dark curve)."}
+ggplot(data.frame(m = means), aes(m)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "grey80", colour = "white") +
+  stat_function(fun = dnorm, args = list(mean = th_mean, sd = sqrt(th_var)), linewidth = 1) +
+  geom_vline(xintercept = th_mean, colour = "blue", linewidth = 1) +
+  geom_vline(xintercept = sm, colour = "red", linetype = 2, linewidth = 1) +
+  labs(x = "Mean of 40 exponentials", y = "Density") + theme_minimal()
+```
+
+```{r cmp, fig.height=2.8, fig.cap="Figure 2: 1000 individual exponentials (left) are strongly right-skewed; 1000 averages of 40 (right) are bell-shaped. See Figure 3 for the Q-Q plot."}
+d <- rbind(data.frame(x = single, type = "Individual exponentials"),
+           data.frame(x = means,  type = "Averages of 40"))
+ggplot(d, aes(x)) + geom_histogram(bins = 30, fill = "grey70", colour = "white") +
+  facet_wrap(~type, scales = "free") + labs(x = NULL, y = "Count") + theme_minimal()
+```
+
+The individual exponentials follow the skewed exponential shape (a spike near 0 and a long tail),
+whereas the averages are symmetric and match the overlaid normal curve. The Q-Q plot confirms
+this: points lie close to the line except for slight deviation in the extreme tails, where
+the residual right-skew of the exponential is still faintly visible at $n=40$.
+
+```{r qq, fig.height=2.8, fig.cap="Figure 3: Normal Q-Q plot of the 1000 averages."}
+qqnorm(means, main = ""); qqline(means, col = "red")
+```
+
+As a coverage check, `r round(mean(abs(means - th_mean) < 1.96*sqrt(th_var))*100, 1)`% of averages fall within
+$\pm 1.96$ theoretical sd of 5 (normal theory: 95%).
+
+<div style="page-break-before:always"></div>
+
+## Appendix: code
+
+```{r appendix, echo=TRUE, eval=FALSE}
+set.seed(123); lambda <- 0.2; n <- 40; nsim <- 1000
+means  <- replicate(nsim, mean(rexp(n, lambda)))
+single <- rexp(nsim, lambda)
+mean(means); 1/lambda                 # sample vs theoretical mean
+var(means);  (1/lambda)^2 / n         # sample vs theoretical variance
+hist(means, freq = FALSE); curve(dnorm(x, 5, sqrt(25/40)), add = TRUE)
+qqnorm(means); qqline(means)
+```

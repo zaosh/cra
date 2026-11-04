@@ -1,0 +1,4 @@
+@page { size: Letter; margin: 0.7in; }
+body { font-size: 11pt; max-width: none; margin: 0; padding: 0; }
+.main-container { max-width: none !important; }
+img { max-width: 100%; }
