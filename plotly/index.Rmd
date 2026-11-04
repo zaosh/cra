@@ -1,0 +1,47 @@
+---
+title: "Highest Peaks of the World"
+author: "Zaosh"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  slidy_presentation:
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(plotly)
+peaks <- data.frame(
+  name = c("Everest","K2","Kangchenjunga","Lhotse","Makalu","Denali","Aconcagua","Kilimanjaro","Elbrus","Mont Blanc","Fuji"),
+  range = c("Himalaya","Karakoram","Himalaya","Himalaya","Himalaya","Alaska","Andes","Africa","Caucasus","Alps","Japan"),
+  height = c(8849,8611,8586,8516,8485,6190,6961,5895,5642,4806,3776),
+  prominence = c(8849,4020,3922,610,2386,6144,6961,5885,4741,4695,3776)
+)
+```
+
+## Overview
+
+- Presentation built with **R Markdown** (ioslides) and **Plotly**
+- Created on **`r format(Sys.Date(), '%B %d, %Y')`**
+- Next slides: interactive plots – hover, zoom and click the legend
+
+## Peak heights
+
+```{r bar}
+plot_ly(peaks[order(peaks$height),], x = ~height, y = ~reorder(name, height),
+        type = "bar", orientation = "h", color = ~range,
+        text = ~paste(height, "m"), hoverinfo = "text+y",
+        width = 850, height = 420) %>%
+  layout(xaxis = list(title = "Height (m)"), yaxis = list(title = ""))
+```
+
+## Height vs. prominence
+
+```{r scatter}
+plot_ly(peaks, x = ~height, y = ~prominence, type = "scatter", mode = "markers",
+        color = ~range, size = ~height, sizes = c(10, 50),
+        text = ~name, hoverinfo = "text+x+y", width = 850, height = 420) %>%
+  layout(xaxis = list(title = "Height (m)"), yaxis = list(title = "Prominence (m)"))
+```
+
+## Thank you
+
+Hover, zoom and pan on any plot – built with Plotly in R.
