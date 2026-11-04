@@ -1,0 +1,41 @@
+---
+title: "Great Mountain Peaks of the World"
+author: "Zaosh"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    self_contained: true
+---
+
+Created on **`r format(Sys.Date(), '%B %d, %Y')`** with R Markdown and Leaflet.
+Click a marker for details; the circle size reflects each peak's height.
+
+```{r map, message=FALSE, warning=FALSE}
+library(leaflet)
+
+peaks <- data.frame(
+  name = c("Mount Everest", "K2", "Kangchenjunga", "Denali", "Aconcagua",
+           "Mont Blanc", "Mount Kilimanjaro", "Mount Elbrus", "Mount Fuji"),
+  country = c("Nepal/China", "Pakistan/China", "Nepal/India", "USA", "Argentina",
+              "France/Italy", "Tanzania", "Russia", "Japan"),
+  height_m = c(8849, 8611, 8586, 6190, 6961, 4806, 5895, 5642, 3776),
+  lat = c(27.9881, 35.8825, 27.7025, 63.0695, -32.6532, 45.8326, -3.0674, 43.3499, 35.3606),
+  lng = c(86.9250, 76.5133, 88.1475, -151.0074, -70.0109, 6.8652, 37.3556, 42.4453, 138.7274)
+)
+
+pal <- colorNumeric("YlOrRd", peaks$height_m)
+
+leaflet(peaks) %>%
+  addProviderTiles(providers$OpenTopoMap, group = "Topographic") %>%
+  addProviderTiles(providers$CartoDB.Positron, group = "Light") %>%
+  addCircleMarkers(
+    lng = ~lng, lat = ~lat,
+    radius = ~height_m / 600,
+    color = ~pal(height_m), fillOpacity = 0.8, stroke = TRUE, weight = 1,
+    label = ~name,
+    popup = ~paste0("<b>", name, "</b><br>", country, "<br>", format(height_m, big.mark = ","), " m")
+  ) %>%
+  addLegend("bottomright", pal = pal, values = ~height_m, title = "Height (m)") %>%
+  addLayersControl(baseGroups = c("Topographic", "Light"), options = layersControlOptions(collapsed = FALSE)) %>%
+  addMiniMap(toggleDisplay = TRUE)
+```
